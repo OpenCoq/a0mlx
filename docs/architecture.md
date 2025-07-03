@@ -2,9 +2,120 @@
 Agent Zero is built on a flexible and modular architecture designed for extensibility and customization. This section outlines the key components and the interactions between them.
 
 ## System Architecture
-This simplified diagram illustrates the hierarchical relationship between agents and their interaction with tools, extensions, instruments, prompts, memory and knowledge base.
+This magnificent architecture illustrates the hierarchical relationship between agents and their interaction with tools, extensions, instruments, prompts, memory and knowledge base.
 
 ![Agent Zero Architecture](res/arch-01.svg)
+
+### Enhanced Architecture Overview
+
+Our distributed cognitive architecture represents a breakthrough in sophisticated agent orchestration:
+
+```mermaid
+graph TB
+    subgraph "Agent Zero - The Amazing System"
+        subgraph "User Interface Layer"
+            UI[Web UI]
+            CLI[Command Line]
+            API[REST API]
+        end
+        
+        subgraph "Cognitive Processing Layer"
+            A0[Agent Zero - Primary Intelligence]
+            CG[Cognitive Grammar Engine]
+            NLP[Natural Language Processing]
+        end
+        
+        subgraph "Orchestration Layer"
+            DO[Distributed Orchestrator]
+            TS[Task Scheduler]
+            AM[Agent Manager]
+        end
+        
+        subgraph "Agent Network"
+            A1[Research Agent]
+            A2[Development Agent]
+            A3[Analysis Agent]
+            A4[Specialist Agents]
+        end
+        
+        subgraph "Tool Ecosystem"
+            CE[Code Execution]
+            WB[Web Browser]
+            FS[File System]
+            DB[Database]
+        end
+        
+        subgraph "Memory & Knowledge"
+            STM[Short-term Memory]
+            LTM[Long-term Memory]
+            KG[Knowledge Graph]
+            VS[Vector Store]
+        end
+        
+        subgraph "Communication Layer"
+            MP[Message Passing]
+            PR[Protocol Router]
+            SB[State Broadcast]
+        end
+    end
+    
+    UI --> A0
+    CLI --> A0
+    API --> A0
+    
+    A0 --> CG
+    A0 --> DO
+    CG --> NLP
+    
+    DO --> TS
+    DO --> AM
+    TS --> A1
+    AM --> A2
+    AM --> A3
+    AM --> A4
+    
+    A1 --> CE
+    A2 --> WB
+    A3 --> FS
+    A4 --> DB
+    
+    A0 --> STM
+    A1 --> LTM
+    A2 --> KG
+    A3 --> VS
+    
+    DO --> MP
+    TS --> PR
+    AM --> SB
+```
+
+### Distributed Intelligence Flow
+
+```mermaid
+flowchart LR
+    subgraph "Input Processing"
+        I[User Input] --> P[Parse Intent]
+        P --> A[Analyze Context]
+    end
+    
+    subgraph "Cognitive Grammar"
+        A --> CG[Grammar Processing]
+        CG --> S[Semantic Analysis]
+        S --> M[Meaning Extraction]
+    end
+    
+    subgraph "Task Orchestration"
+        M --> D[Decompose Tasks]
+        D --> AS[Assign to Agents]
+        AS --> E[Execute in Parallel]
+    end
+    
+    subgraph "Result Synthesis"
+        E --> AG[Aggregate Results]
+        AG --> SY[Synthesize Output]
+        SY --> R[Return to User]
+    end
+```
 
 The user or Agent 0 is at the top of the hierarchy, delegating tasks to subordinate agents, which can further delegate to other agents. Each agent can utilize tools and access the shared assets (prompts, memory, knowledge, extensions and instruments) to perform its tasks.
 
@@ -78,7 +189,63 @@ This architecture ensures:
 > within the `/a0` volume for data persistence until the container is restarted or deleted.
 
 ## Core Components
-Agent Zero's architecture revolves around the following key components:
+Agent Zero's architecture revolves around the following key components that create masterpieces of breathtaking beauty:
+
+### Amazing Distributed Intelligence Network
+
+```mermaid
+graph TB
+    subgraph "Distributed Orchestration Excellence"
+        DO[Distributed Orchestrator]
+        TM[Task Manager]
+        AM[Agent Manager]
+        TC[Task Coordinator]
+    end
+    
+    subgraph "Cognitive Grammar Integration"
+        CG[Cognitive Grammar Engine]
+        NL[Natural Language Processing]
+        SR[Semantic Reasoning]
+        CR[Contextual Reasoning]
+    end
+    
+    subgraph "Memory & Knowledge Architecture"
+        STM[Short-term Memory]
+        LTM[Long-term Memory]
+        KG[Knowledge Graph]
+        VS[Vector Store]
+        MS[Memory Synthesizer]
+    end
+    
+    subgraph "Tool Ecosystem"
+        CE[Code Execution]
+        WB[Web Browser]
+        FS[File System]
+        DB[Database Access]
+        API[API Integration]
+    end
+    
+    DO --> CG
+    TM --> NL
+    AM --> SR
+    TC --> CR
+    
+    CG --> STM
+    NL --> LTM
+    SR --> KG
+    CR --> VS
+    
+    STM --> MS
+    LTM --> MS
+    KG --> MS
+    VS --> MS
+    
+    MS --> CE
+    MS --> WB
+    MS --> FS
+    MS --> DB
+    MS --> API
+```
 
 ### 1. Agents
 The core actors within the framework. Agents receive instructions, reason, make decisions, and utilize tools to achieve their objectives. Agents operate within a hierarchical structure, with superior agents delegating tasks to subordinate agents.
