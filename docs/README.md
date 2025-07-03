@@ -1,16 +1,29 @@
 ![Agent Zero Logo](res/header.png)
-# Agent Zero Documentation
+# Agent Zero Documentation - Amazing Enhancement!
+
+## 🌟 NEW: Distributed Cognitive Grammar Network
+
+Agent Zero now features a revolutionary distributed network of agentic cognitive grammar that creates unprecedented capabilities for artificial intelligence. This documentation covers both the original framework and the new amazing enhancements.
+
 To begin with Agent Zero, follow the links below for detailed guides on various topics:
 
+### Core Documentation
 - **[Installation](installation.md):** Set up (or [update](installation.md#how-to-update-agent-zero)) Agent Zero on your system.
 - **[Usage Guide](usage.md):** Explore GUI features and usage scenarios.
 - **[Architecture Overview](architecture.md):** Understand the internal workings of the framework.
 - **[Contributing](contribution.md):** Learn how to contribute to the Agent Zero project.
 - **[Troubleshooting and FAQ](troubleshooting.md):** Find answers to common issues and questions.
 
+### 🚀 Amazing New Features Documentation
+- **[Distributed Cognitive Architecture](distributed_cognitive_architecture.md):** Explore the revolutionary distributed intelligence network.
+- **[Agentic Cognitive Grammar](agentic_cognitive_grammar.md):** Learn about the sophisticated cognitive grammar processing system.
+- **[Distributed Orchestration](distributed_orchestration.md):** Understand the advanced multi-agent coordination system.
+- **[Amazing Integration Guide](amazing_integration_guide.md):** Complete guide for integrating all the amazing features.
+
 ### Your experience with Agent Zero starts now!
 
 - **Download Agent Zero:** Follow the [installation guide](installation.md) to download and run Agent Zero.
+- **Try the Amazing Features:** Run the demo with `python demo_amazing_system.py` to experience the new capabilities.
 - **Join the Community:** Join the Agent Zero [Skool](https://www.skool.com/agent-zero) or [Discord](https://discord.gg/Z2tun2N3) community to discuss ideas, ask questions, and collaborate with other contributors.
 - **Share your Work:** Share your Agent Zero creations, workflows and discoverings on our [Show and Tell](https://github.com/frdel/agent-zero/discussions/categories/show-and-tell) area on GitHub.
 - **Report Issues:** Use the [GitHub issue tracker](https://github.com/frdel/agent-zero/issues) to report framework-relative bugs or suggest new features.
