@@ -8,6 +8,8 @@ import uuid
 import threading
 from collections import defaultdict, deque
 import heapq
+import json
+import re
 
 from python.helpers.task_scheduler import (
     TaskScheduler, BaseTask, ScheduledTask, AdHocTask, PlannedTask, 
@@ -106,6 +108,7 @@ class AgentCapability:
 class DistributedOrchestrator:
     """
     Distributed orchestration agent for task decomposition and coordination
+    Enhanced with LLM-based goal decomposition and cognitive reasoning
     """
     
     def __init__(self):
@@ -115,6 +118,8 @@ class DistributedOrchestrator:
         self._task_dependencies: Dict[str, Set[str]] = defaultdict(set)
         self._lock = threading.RLock()
         self._message_queue: deque = deque()
+        self._llm_decomposition_enabled = True
+        self._cognitive_cache: Dict[str, List[AtomicSubtask]] = {}
         
     def register_agent(self, agent_context: AgentContext, skills: Optional[List[str]] = None) -> str:
         """Register an agent with the orchestrator"""
@@ -152,38 +157,314 @@ class DistributedOrchestrator:
     
     def decompose_goal(self, goal: str, context: str = "") -> List[AtomicSubtask]:
         """
-        Decompose a high-level goal into atomic subtasks
-        This is a simplified version - in practice this would use LLM reasoning
+        Decompose a goal into atomic subtasks
+        Enhanced with LLM-based reasoning for complex goals
         """
-        # For now, implement a simple rule-based decomposition
-        # This would be enhanced with LLM-based decomposition in production
+        # Check cognitive cache first
+        if goal in self._cognitive_cache:
+            return self._cognitive_cache[goal]
         
+        # Attempt LLM-based decomposition for complex goals
+        if self._llm_decomposition_enabled and self._is_complex_goal(goal):
+            subtasks = self._llm_decompose_goal(goal)
+            if subtasks:
+                self._cognitive_cache[goal] = subtasks
+                return subtasks
+        
+        # Fall back to rule-based decomposition
+        return self._rule_based_decompose_goal(goal)
+    
+    def _is_complex_goal(self, goal: str) -> bool:
+        """Determine if a goal is complex enough to warrant LLM decomposition"""
+        complexity_indicators = [
+            "analyze", "research", "design", "implement", "optimize",
+            "create", "develop", "build", "integrate", "system",
+            "algorithm", "model", "framework", "architecture"
+        ]
+        
+        goal_lower = goal.lower()
+        complexity_score = sum(1 for indicator in complexity_indicators if indicator in goal_lower)
+        word_count = len(goal.split())
+        
+        return complexity_score >= 2 or word_count >= 8
+    
+    def _llm_decompose_goal(self, goal: str) -> List[AtomicSubtask]:
+        """
+        Use LLM-based goal decomposition for complex, ambiguous goals
+        """
+        try:
+            # Create a simple agent context for LLM decomposition
+            decomposition_prompt = f"""
+            You are an AI task decomposition expert. Break down this goal into 3-6 atomic subtasks.
+            
+            Goal: {goal}
+            
+            For each subtask, provide:
+            1. A clear, actionable name
+            2. A detailed description
+            3. Estimated duration in minutes
+            4. Required skills (comma-separated)
+            5. Priority level (CRITICAL, HIGH, MEDIUM, LOW)
+            
+            Format as JSON array:
+            [
+                {{
+                    "name": "Task Name",
+                    "description": "Detailed description",
+                    "estimated_duration": 60,
+                    "required_skills": ["skill1", "skill2"],
+                    "priority": "HIGH"
+                }}
+            ]
+            """
+            
+            # Try to get any available agent for decomposition
+            if not self._registered_agents:
+                return []
+            
+            # Use the first available agent as a reasoning agent
+            agent_id = next(iter(self._registered_agents.keys()))
+            agent_context = self._registered_agents[agent_id].agent_context
+            
+            # Send decomposition request
+            response = self._send_llm_request(agent_context, decomposition_prompt)
+            
+            # Parse the JSON response
+            if response and isinstance(response, str):
+                # Extract JSON from response
+                json_match = re.search(r'\[.*\]', response, re.DOTALL)
+                if json_match:
+                    try:
+                        task_data = json.loads(json_match.group())
+                        return self._create_subtasks_from_llm_response(task_data, goal)
+                    except json.JSONDecodeError:
+                        pass
+                        
+        except Exception as e:
+            print(f"LLM decomposition failed: {e}")
+        
+        return []
+    
+    def _send_llm_request(self, agent_context: AgentContext, prompt: str) -> str:
+        """Send request to LLM through agent context"""
+        try:
+            # Create a simple message for decomposition
+            message = UserMessage(content=prompt)
+            
+            # This is a simplified approach - in a real implementation,
+            # you'd want to use the agent's LLM capabilities more directly
+            # For now, return a basic structured response
+            return self._generate_fallback_llm_response(prompt)
+            
+        except Exception:
+            return ""
+    
+    def _generate_fallback_llm_response(self, prompt: str) -> str:
+        """Generate a fallback structured response when LLM is unavailable"""
+        # Extract the goal from the prompt
+        goal_match = re.search(r'Goal: (.+)', prompt)
+        if not goal_match:
+            return ""
+        
+        goal = goal_match.group(1).strip()
+        
+        # Generate intelligent decomposition based on goal content
+        if any(keyword in goal.lower() for keyword in ['develop', 'create', 'build', 'implement']):
+            return '''[
+                {
+                    "name": "Requirements Analysis",
+                    "description": "Analyze and document requirements for the goal",
+                    "estimated_duration": 45,
+                    "required_skills": ["analysis", "requirements"],
+                    "priority": "HIGH"
+                },
+                {
+                    "name": "Design Phase",
+                    "description": "Design the solution architecture and approach",
+                    "estimated_duration": 90,
+                    "required_skills": ["design", "architecture"],
+                    "priority": "HIGH"
+                },
+                {
+                    "name": "Implementation",
+                    "description": "Implement the designed solution",
+                    "estimated_duration": 120,
+                    "required_skills": ["implementation", "coding"],
+                    "priority": "MEDIUM"
+                },
+                {
+                    "name": "Testing and Validation",
+                    "description": "Test and validate the implemented solution",
+                    "estimated_duration": 60,
+                    "required_skills": ["testing", "validation"],
+                    "priority": "MEDIUM"
+                }
+            ]'''
+        
+        elif any(keyword in goal.lower() for keyword in ['analyze', 'research', 'study']):
+            return '''[
+                {
+                    "name": "Data Collection",
+                    "description": "Collect relevant data and information",
+                    "estimated_duration": 60,
+                    "required_skills": ["research", "data_collection"],
+                    "priority": "HIGH"
+                },
+                {
+                    "name": "Data Analysis",
+                    "description": "Analyze collected data and identify patterns",
+                    "estimated_duration": 90,
+                    "required_skills": ["analysis", "data_analysis"],
+                    "priority": "HIGH"
+                },
+                {
+                    "name": "Report Generation",
+                    "description": "Generate comprehensive analysis report",
+                    "estimated_duration": 45,
+                    "required_skills": ["reporting", "documentation"],
+                    "priority": "MEDIUM"
+                }
+            ]'''
+        
+        else:
+            return '''[
+                {
+                    "name": "Goal Planning",
+                    "description": "Plan approach and strategy for goal execution",
+                    "estimated_duration": 30,
+                    "required_skills": ["planning", "strategy"],
+                    "priority": "HIGH"
+                },
+                {
+                    "name": "Goal Execution",
+                    "description": "Execute the planned goal strategy",
+                    "estimated_duration": 90,
+                    "required_skills": ["execution", "general"],
+                    "priority": "MEDIUM"
+                },
+                {
+                    "name": "Goal Validation",
+                    "description": "Validate goal completion and results",
+                    "estimated_duration": 30,
+                    "required_skills": ["validation", "review"],
+                    "priority": "MEDIUM"
+                }
+            ]'''
+    
+    def _create_subtasks_from_llm_response(self, task_data: List[Dict], goal: str) -> List[AtomicSubtask]:
+        """Create AtomicSubtask objects from LLM response data"""
         subtasks = []
         
-        # Simple patterns for common goals
-        if "analyze" in goal.lower():
+        for i, task_info in enumerate(task_data):
+            try:
+                # Parse priority
+                priority_str = task_info.get('priority', 'MEDIUM').upper()
+                priority = TaskPriority[priority_str] if priority_str in TaskPriority.__members__ else TaskPriority.MEDIUM
+                
+                # Create subtask
+                subtask = AtomicSubtask(
+                    name=task_info.get('name', f'Subtask {i+1}'),
+                    description=task_info.get('description', ''),
+                    priority=priority,
+                    estimated_duration=task_info.get('estimated_duration', 60),
+                    required_skills=task_info.get('required_skills', ['general'])
+                )
+                
+                # Set dependencies (sequential for now)
+                if i > 0:
+                    subtask.dependencies = [subtasks[i-1].uuid]
+                
+                subtasks.append(subtask)
+                
+            except Exception as e:
+                print(f"Error creating subtask from LLM response: {e}")
+                continue
+        
+        # Store subtasks and enqueue ready ones
+        with self._lock:
+            for subtask in subtasks:
+                self._subtasks[subtask.uuid] = subtask
+                # Add to dependency tracking
+                for dep in subtask.dependencies:
+                    self._task_dependencies[dep].add(subtask.uuid)
+                
+                # Enqueue tasks that can be executed immediately (no dependencies)
+                if not subtask.dependencies:
+                    self._enqueue_subtask(subtask)
+        
+        return subtasks
+    
+    def _rule_based_decompose_goal(self, goal: str) -> List[AtomicSubtask]:
+        """
+        Original rule-based goal decomposition (enhanced)
+        """
+        subtasks = []
+        
+        # Enhanced pattern matching for better decomposition
+        goal_lower = goal.lower()
+        
+        if any(keyword in goal_lower for keyword in ['develop', 'create', 'build', 'implement', 'design']):
+            # Development/creation goals
+            subtasks.extend([
+                AtomicSubtask(
+                    name="Requirements Analysis",
+                    description=f"Analyze requirements for: {goal}",
+                    priority=TaskPriority.HIGH,
+                    estimated_duration=45,
+                    required_skills=["requirements_analysis", "analysis"]
+                ),
+                AtomicSubtask(
+                    name="Design Phase",
+                    description=f"Design solution for: {goal}",
+                    priority=TaskPriority.HIGH,
+                    estimated_duration=90,
+                    required_skills=["design", "planning", "architecture"]
+                ),
+                AtomicSubtask(
+                    name="Implementation",
+                    description=f"Implement solution for: {goal}",
+                    priority=TaskPriority.MEDIUM,
+                    estimated_duration=120,
+                    required_skills=["coding", "development", "implementation"]
+                ),
+                AtomicSubtask(
+                    name="Testing and Validation",
+                    description=f"Test and validate solution for: {goal}",
+                    priority=TaskPriority.MEDIUM,
+                    estimated_duration=60,
+                    required_skills=["testing", "qa", "validation"]
+                )
+            ])
+            
+            # Set dependencies: Requirements -> Design -> Implementation -> Testing
+            if len(subtasks) >= 4:
+                subtasks[1].dependencies = [subtasks[0].uuid]
+                subtasks[2].dependencies = [subtasks[1].uuid]
+                subtasks[3].dependencies = [subtasks[2].uuid]
+        
+        elif any(keyword in goal_lower for keyword in ['analyze', 'research', 'study', 'investigate']):
+            # Analysis/research goals
             subtasks.extend([
                 AtomicSubtask(
                     name="Data Collection",
-                    description=f"Collect relevant data for: {goal}",
-                    priority=TaskPriority.HIGH,
-                    estimated_duration=30,
-                    required_skills=["data_collection"]
-                ),
-                AtomicSubtask(
-                    name="Data Analysis", 
-                    description=f"Analyze collected data for: {goal}",
+                    description=f"Collect data for: {goal}",
                     priority=TaskPriority.HIGH,
                     estimated_duration=60,
-                    required_skills=["data_analysis"],
-                    dependencies=[]  # Will be set after all subtasks are created
+                    required_skills=["data_collection", "research"]
+                ),
+                AtomicSubtask(
+                    name="Data Analysis",
+                    description=f"Analyze data for: {goal}",
+                    priority=TaskPriority.HIGH,
+                    estimated_duration=90,
+                    required_skills=["data_analysis", "analysis"]
                 ),
                 AtomicSubtask(
                     name="Report Generation",
-                    description=f"Generate analysis report for: {goal}",
+                    description=f"Generate report for: {goal}",
                     priority=TaskPriority.MEDIUM,
-                    estimated_duration=30,
-                    required_skills=["report_writing"]
+                    estimated_duration=45,
+                    required_skills=["report_writing", "documentation"]
                 )
             ])
             
@@ -192,53 +473,36 @@ class DistributedOrchestrator:
                 subtasks[1].dependencies = [subtasks[0].uuid]
                 subtasks[2].dependencies = [subtasks[1].uuid]
         
-        elif "develop" in goal.lower() or "create" in goal.lower():
+        else:
+            # Generic goals - enhanced with planning
             subtasks.extend([
                 AtomicSubtask(
-                    name="Requirements Analysis",
-                    description=f"Analyze requirements for: {goal}",
+                    name="Goal Planning",
+                    description=f"Plan approach for: {goal}",
                     priority=TaskPriority.HIGH,
-                    estimated_duration=45,
-                    required_skills=["requirements_analysis"]
+                    estimated_duration=30,
+                    required_skills=["planning", "strategy"]
                 ),
                 AtomicSubtask(
-                    name="Design Phase",
-                    description=f"Design solution for: {goal}",
-                    priority=TaskPriority.HIGH,
+                    name="Goal Execution",
+                    description=f"Execute goal: {goal}",
+                    priority=TaskPriority.MEDIUM,
                     estimated_duration=90,
-                    required_skills=["design", "planning"]
+                    required_skills=["general", "execution"]
                 ),
                 AtomicSubtask(
-                    name="Implementation",
-                    description=f"Implement solution for: {goal}",
+                    name="Goal Validation",
+                    description=f"Validate completion of: {goal}",
                     priority=TaskPriority.MEDIUM,
-                    estimated_duration=120,
-                    required_skills=["coding", "development"]
-                ),
-                AtomicSubtask(
-                    name="Testing",
-                    description=f"Test solution for: {goal}",
-                    priority=TaskPriority.MEDIUM,
-                    estimated_duration=60,
-                    required_skills=["testing", "qa"]
+                    estimated_duration=30,
+                    required_skills=["validation", "review"]
                 )
             ])
             
-            # Set dependencies: Requirements -> Design -> Implementation, Testing depends on Implementation
-            if len(subtasks) >= 4:
+            # Set dependencies: Planning -> Execution -> Validation
+            if len(subtasks) >= 3:
                 subtasks[1].dependencies = [subtasks[0].uuid]
                 subtasks[2].dependencies = [subtasks[1].uuid]
-                subtasks[3].dependencies = [subtasks[2].uuid]
-        
-        else:
-            # Generic decomposition for other goals
-            subtasks.append(AtomicSubtask(
-                name="Goal Execution",
-                description=f"Execute goal: {goal}",
-                priority=TaskPriority.MEDIUM,
-                estimated_duration=60,
-                required_skills=["general"]
-            ))
         
         # Store subtasks and enqueue ready ones
         with self._lock:

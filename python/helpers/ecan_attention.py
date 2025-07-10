@@ -167,13 +167,19 @@ class ECANAttentionSystem:
         self.inspection_thread: Optional[threading.Thread] = None
         self.running = False
         
+        # Agent reliability tracking for attention modulation
+        self.agent_reliability_scores: Dict[str, float] = {}
+        self.agent_performance_history: Dict[str, List[float]] = defaultdict(list)
+        self.max_attention_units = 1000  # Maximum number of attention units
+        
         # Statistics
         self.statistics = {
             "attention_allocations": 0,
             "resource_allocations": 0,
             "self_modifications": 0,
             "inspection_cycles": 0,
-            "adaptation_events": 0
+            "adaptation_events": 0,
+            "attention_redistributions": 0
         }
     
     async def initialize(self):
@@ -229,7 +235,10 @@ class ECANAttentionSystem:
     
     async def allocate_attention(self, atom_id: str, priority: float, 
                                requester_id: str) -> bool:
-        """Allocate attention to a specific atom"""
+        """Allocate attention to a specific atom with dynamic modulation"""
+        # Enhanced attention allocation with adaptive modulation
+        modulated_priority = await self._modulate_attention_priority(priority, atom_id, requester_id)
+        
         # Check if we have attention resources
         if not self.resource_pools[ResourceType.ATTENTION].allocate(requester_id, 1.0):
             return False
@@ -246,8 +255,83 @@ class ECANAttentionSystem:
             attention_unit = AttentionUnit(
                 id=f"au_{atom_id}_{uuid.uuid4().hex[:8]}",
                 atom_id=atom_id,
-                attention_value=priority,
-                importance=priority,
+                attention_value=modulated_priority,
+                importance=modulated_priority,
+                urgency=modulated_priority,
+                confidence=min(1.0, modulated_priority),
+                resource_cost=0.1,  # Base cost
+                last_accessed=datetime.now(timezone.utc)
+            )
+            self.attention_units[attention_unit.id] = attention_unit
+        else:
+            # Update existing attention unit with modulated priority
+            attention_unit.attention_value = max(attention_unit.attention_value, modulated_priority)
+            attention_unit.importance = max(attention_unit.importance, modulated_priority)
+            attention_unit.urgency = max(attention_unit.urgency, modulated_priority)
+            attention_unit.last_accessed = datetime.now(timezone.utc)
+        
+        # Update statistics
+        self.statistics["attention_allocations"] += 1
+        
+        # Trigger attention redistribution if needed
+        if len(self.attention_units) > self.max_attention_units:
+            await self._redistribute_attention()
+        
+        return True
+    
+    async def _modulate_attention_priority(self, base_priority: float, atom_id: str, requester_id: str) -> float:
+        """Dynamically modulate attention priority based on context and history"""
+        modulated_priority = base_priority
+        
+        # Historical performance modulation
+        if requester_id in self.agent_reliability_scores:
+            reliability = self.agent_reliability_scores[requester_id]
+            modulated_priority *= (0.5 + reliability * 0.5)  # Scale by reliability
+        
+        # Urgency boost for critical tasks
+        if base_priority > 0.9:
+            modulated_priority *= 1.2
+        
+        # Diminishing returns for repeated attention requests
+        recent_requests = sum(1 for au in self.attention_units.values() 
+                            if au.atom_id == atom_id and 
+                            (datetime.now(timezone.utc) - au.last_accessed).total_seconds() < 300)
+        
+        if recent_requests > 0:
+            diminishing_factor = 1.0 / (1.0 + recent_requests * 0.1)
+            modulated_priority *= diminishing_factor
+        
+        # Resource availability modulation
+        attention_pool = self.resource_pools[ResourceType.ATTENTION]
+        availability_ratio = attention_pool.available_capacity / attention_pool.total_capacity
+        
+        if availability_ratio < 0.2:  # Low availability
+            modulated_priority *= 0.8
+        elif availability_ratio > 0.8:  # High availability
+            modulated_priority *= 1.1
+        
+        return min(1.0, max(0.0, modulated_priority))
+    
+    async def _redistribute_attention(self):
+        """Redistribute attention when resources are constrained"""
+        # Sort attention units by a composite score
+        sorted_units = sorted(
+            self.attention_units.values(),
+            key=lambda au: (au.importance * au.urgency * au.confidence) - 
+                          (datetime.now(timezone.utc) - au.last_accessed).total_seconds() / 3600,
+            reverse=True
+        )
+        
+        # Keep only the top attention units
+        units_to_keep = sorted_units[:self.max_attention_units]
+        
+        # Remove excess units
+        for unit in sorted_units[self.max_attention_units:]:
+            if unit.id in self.attention_units:
+                del self.attention_units[unit.id]
+        
+        # Update statistics
+        self.statistics["attention_redistributions"] += 1
                 confidence=0.5,
                 resource_cost=0.1,
                 last_accessed=datetime.now(timezone.utc)
@@ -456,6 +540,43 @@ class ECANAttentionSystem:
         if self.inspection_thread and self.inspection_thread.is_alive():
             self.inspection_thread.join(timeout=5)
     
+    def update_agent_performance(self, agent_id: str, performance_score: float):
+        """Update agent performance score for attention modulation"""
+        # Clamp performance score to [0, 1]
+        performance_score = max(0.0, min(1.0, performance_score))
+        
+        # Add to history
+        self.agent_performance_history[agent_id].append(performance_score)
+        
+        # Keep only recent history (last 10 scores)
+        if len(self.agent_performance_history[agent_id]) > 10:
+            self.agent_performance_history[agent_id] = self.agent_performance_history[agent_id][-10:]
+        
+        # Calculate moving average as reliability score
+        scores = self.agent_performance_history[agent_id]
+        self.agent_reliability_scores[agent_id] = sum(scores) / len(scores)
+    
+    def get_agent_reliability(self, agent_id: str) -> float:
+        """Get agent reliability score"""
+        return self.agent_reliability_scores.get(agent_id, 0.5)  # Default to neutral
+    
+    async def reward_high_performance(self, agent_id: str, task_completion_quality: float):
+        """Reward agent for high performance by increasing attention allocation priority"""
+        if task_completion_quality > 0.8:
+            # Update performance score
+            self.update_agent_performance(agent_id, task_completion_quality)
+            
+            # Boost attention for this agent's future requests
+            reliability = self.get_agent_reliability(agent_id)
+            
+            # Update attention units associated with this agent
+            for au in self.attention_units.values():
+                # In a real system, you'd track which agent created which attention units
+                # For now, boost attention value based on reliability
+                if reliability > 0.7:
+                    au.attention_value = min(1.0, au.attention_value * 1.1)
+                    au.importance = min(1.0, au.importance * 1.1)
+    
     def get_statistics(self) -> Dict[str, Any]:
         """Get system statistics"""
         return {
@@ -464,6 +585,8 @@ class ECANAttentionSystem:
             "active_reports": len(self.inspection_reports),
             "modification_events": len(self.self_modification_events),
             "current_state": self.current_state.value,
+            "agent_reliability_scores": dict(self.agent_reliability_scores),
+            "average_agent_reliability": sum(self.agent_reliability_scores.values()) / max(1, len(self.agent_reliability_scores))
             "resource_pools": {
                 resource_type.value: {
                     "total_capacity": pool.total_capacity,
