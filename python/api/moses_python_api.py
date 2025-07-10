@@ -180,6 +180,18 @@ class MOSESPythonAPI:
             current_fitness = gen_stats["best_fitness"]
             fitness_history.append(current_fitness)
             
+            # Ensure ECAN integration by updating attention for all programs
+            current_population = self.api.moses_optimizer.population
+            for program in current_population:
+                await self.api.ecan_system.allocate_moses_attention(
+                    atom_id=program.id,
+                    moses_entity_type="program",
+                    fitness_score=program.fitness,
+                    complexity=program.complexity,
+                    generation=program.generation,
+                    requester_id="python_api_evolution"
+                )
+            
             # Progress callback
             if progress_callback:
                 progress_callback({
