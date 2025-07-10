@@ -22,6 +22,12 @@ class AtomType(Enum):
     """Types of atoms in the hypergraph"""
     NODE = "node"
     LINK = "link"
+    # MOSES-specific atom types
+    MOSES_PROGRAM = "moses_program"
+    MOSES_POPULATION = "moses_population"
+    MOSES_FITNESS = "moses_fitness"
+    MOSES_GENE = "moses_gene"
+    MOSES_EXPRESSION = "moses_expression"
 
 
 @dataclass
@@ -95,6 +101,117 @@ class Link(Atom):
         return link
 
 
+@dataclass
+class MOSESProgramAtom(Atom):
+    """Specialized atom for MOSES program representation"""
+    program_type: str = "inference_rule"
+    complexity: int = 0
+    generation: int = 0
+    parent_ids: List[str] = field(default_factory=list)
+    fitness_score: float = 0.0
+    program_atoms: List[str] = field(default_factory=list)  # References to component atoms
+    
+    def __post_init__(self):
+        self.atom_type = AtomType.MOSES_PROGRAM
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert MOSES program to dictionary"""
+        data = super().to_dict()
+        data.update({
+            'program_type': self.program_type,
+            'complexity': self.complexity,
+            'generation': self.generation,
+            'parent_ids': json.dumps(self.parent_ids),
+            'fitness_score': self.fitness_score,
+            'program_atoms': json.dumps(self.program_atoms)
+        })
+        return data
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'MOSESProgramAtom':
+        """Create MOSES program from dictionary"""
+        atom = super().from_dict(data)
+        atom.program_type = data.get('program_type', 'inference_rule')
+        atom.complexity = data.get('complexity', 0)
+        atom.generation = data.get('generation', 0)
+        atom.parent_ids = json.loads(data.get('parent_ids', '[]'))
+        atom.fitness_score = data.get('fitness_score', 0.0)
+        atom.program_atoms = json.loads(data.get('program_atoms', '[]'))
+        return atom
+
+
+@dataclass  
+class MOSESPopulationAtom(Atom):
+    """Specialized atom for MOSES population representation"""
+    population_size: int = 0
+    generation_count: int = 0
+    best_fitness: float = 0.0
+    average_fitness: float = 0.0
+    program_ids: List[str] = field(default_factory=list)  # References to program atoms
+    
+    def __post_init__(self):
+        self.atom_type = AtomType.MOSES_POPULATION
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert MOSES population to dictionary"""
+        data = super().to_dict()
+        data.update({
+            'population_size': self.population_size,
+            'generation_count': self.generation_count,
+            'best_fitness': self.best_fitness,
+            'average_fitness': self.average_fitness,
+            'program_ids': json.dumps(self.program_ids)
+        })
+        return data
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'MOSESPopulationAtom':
+        """Create MOSES population from dictionary"""
+        atom = super().from_dict(data)
+        atom.population_size = data.get('population_size', 0)
+        atom.generation_count = data.get('generation_count', 0)
+        atom.best_fitness = data.get('best_fitness', 0.0)
+        atom.average_fitness = data.get('average_fitness', 0.0)
+        atom.program_ids = json.loads(data.get('program_ids', '[]'))
+        return atom
+
+
+@dataclass
+class MOSESFitnessAtom(Atom):
+    """Specialized atom for MOSES fitness evaluation"""
+    fitness_type: str = "semantic_coherence"  # semantic_coherence, utility, complexity
+    fitness_value: float = 0.0
+    confidence_interval: Tuple[float, float] = field(default_factory=lambda: (0.0, 0.0))
+    evaluation_context: Dict[str, Any] = field(default_factory=dict)
+    program_id: str = ""
+    
+    def __post_init__(self):
+        self.atom_type = AtomType.MOSES_FITNESS
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert MOSES fitness to dictionary"""
+        data = super().to_dict()
+        data.update({
+            'fitness_type': self.fitness_type,
+            'fitness_value': self.fitness_value,
+            'confidence_interval': json.dumps(self.confidence_interval),
+            'evaluation_context': json.dumps(self.evaluation_context),
+            'program_id': self.program_id
+        })
+        return data
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'MOSESFitnessAtom':
+        """Create MOSES fitness from dictionary"""
+        atom = super().from_dict(data)
+        atom.fitness_type = data.get('fitness_type', 'semantic_coherence')
+        atom.fitness_value = data.get('fitness_value', 0.0)
+        atom.confidence_interval = tuple(json.loads(data.get('confidence_interval', '[0.0, 0.0]')))
+        atom.evaluation_context = json.loads(data.get('evaluation_context', '{}'))
+        atom.program_id = data.get('program_id', '')
+        return atom
+
+
 class HypergraphStorage:
     """Persistent storage backend for hypergraph using SQLite"""
     
@@ -116,7 +233,24 @@ class HypergraphStorage:
                     metadata TEXT,
                     concept_type TEXT,
                     link_type TEXT,
-                    outgoing TEXT
+                    outgoing TEXT,
+                    -- MOSES-specific fields
+                    program_type TEXT,
+                    complexity INTEGER,
+                    generation INTEGER,
+                    parent_ids TEXT,
+                    fitness_score REAL,
+                    program_atoms TEXT,
+                    population_size INTEGER,
+                    generation_count INTEGER,
+                    best_fitness REAL,
+                    average_fitness REAL,
+                    program_ids TEXT,
+                    fitness_type TEXT,
+                    fitness_value REAL,
+                    confidence_interval TEXT,
+                    evaluation_context TEXT,
+                    program_id TEXT
                 );
                 
                 CREATE TABLE IF NOT EXISTS snapshots (
@@ -130,6 +264,9 @@ class HypergraphStorage:
                 CREATE INDEX IF NOT EXISTS idx_atoms_type ON atoms(atom_type);
                 CREATE INDEX IF NOT EXISTS idx_atoms_name ON atoms(name);
                 CREATE INDEX IF NOT EXISTS idx_atoms_timestamp ON atoms(timestamp);
+                CREATE INDEX IF NOT EXISTS idx_atoms_program_type ON atoms(program_type);
+                CREATE INDEX IF NOT EXISTS idx_atoms_fitness_score ON atoms(fitness_score);
+                CREATE INDEX IF NOT EXISTS idx_atoms_generation ON atoms(generation);
                 CREATE INDEX IF NOT EXISTS idx_snapshots_timestamp ON snapshots(timestamp);
             ''')
     
@@ -146,6 +283,36 @@ class HypergraphStorage:
                     ''', (data['id'], data['atom_type'], data['name'], data['truth_value'], 
                          data['confidence'], data['timestamp'], data['metadata'], 
                          data['link_type'], data['outgoing']))
+                elif isinstance(atom, MOSESProgramAtom):
+                    conn.execute('''
+                        INSERT OR REPLACE INTO atoms 
+                        (id, atom_type, name, truth_value, confidence, timestamp, metadata, 
+                         program_type, complexity, generation, parent_ids, fitness_score, program_atoms)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (data['id'], data['atom_type'], data['name'], data['truth_value'], 
+                         data['confidence'], data['timestamp'], data['metadata'],
+                         data['program_type'], data['complexity'], data['generation'],
+                         data['parent_ids'], data['fitness_score'], data['program_atoms']))
+                elif isinstance(atom, MOSESPopulationAtom):
+                    conn.execute('''
+                        INSERT OR REPLACE INTO atoms 
+                        (id, atom_type, name, truth_value, confidence, timestamp, metadata,
+                         population_size, generation_count, best_fitness, average_fitness, program_ids)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (data['id'], data['atom_type'], data['name'], data['truth_value'], 
+                         data['confidence'], data['timestamp'], data['metadata'],
+                         data['population_size'], data['generation_count'], 
+                         data['best_fitness'], data['average_fitness'], data['program_ids']))
+                elif isinstance(atom, MOSESFitnessAtom):
+                    conn.execute('''
+                        INSERT OR REPLACE INTO atoms 
+                        (id, atom_type, name, truth_value, confidence, timestamp, metadata,
+                         fitness_type, fitness_value, confidence_interval, evaluation_context, program_id)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (data['id'], data['atom_type'], data['name'], data['truth_value'], 
+                         data['confidence'], data['timestamp'], data['metadata'],
+                         data['fitness_type'], data['fitness_value'], 
+                         data['confidence_interval'], data['evaluation_context'], data['program_id']))
                 else:
                     conn.execute('''
                         INSERT OR REPLACE INTO atoms 
@@ -172,8 +339,16 @@ class HypergraphStorage:
                     return None
                 
                 data = dict(row)
-                if data['atom_type'] == AtomType.LINK.value:
+                atom_type = data['atom_type']
+                
+                if atom_type == AtomType.LINK.value:
                     return Link.from_dict(data)
+                elif atom_type == AtomType.MOSES_PROGRAM.value:
+                    return MOSESProgramAtom.from_dict(data)
+                elif atom_type == AtomType.MOSES_POPULATION.value:
+                    return MOSESPopulationAtom.from_dict(data)
+                elif atom_type == AtomType.MOSES_FITNESS.value:
+                    return MOSESFitnessAtom.from_dict(data)
                 else:
                     node = Node.from_dict(data)
                     node.concept_type = data.get('concept_type', 'concept')
@@ -189,11 +364,17 @@ class HypergraphStorage:
             params = []
             
             for key, value in pattern.items():
-                if key in ['atom_type', 'name', 'concept_type', 'link_type']:
+                if key in ['atom_type', 'name', 'concept_type', 'link_type', 'program_type', 'fitness_type']:
                     conditions.append(f"{key} = ?")
                     params.append(value)
                 elif key == 'truth_value_min':
                     conditions.append("truth_value >= ?")
+                    params.append(value)
+                elif key == 'fitness_score_min':
+                    conditions.append("fitness_score >= ?")
+                    params.append(value)
+                elif key == 'generation_min':
+                    conditions.append("generation >= ?")
                     params.append(value)
                 elif key == 'timestamp_after':
                     conditions.append("timestamp > ?")
@@ -211,8 +392,16 @@ class HypergraphStorage:
                 atoms = []
                 for row in rows:
                     data = dict(row)
-                    if data['atom_type'] == AtomType.LINK.value:
+                    atom_type = data['atom_type']
+                    
+                    if atom_type == AtomType.LINK.value:
                         atoms.append(Link.from_dict(data))
+                    elif atom_type == AtomType.MOSES_PROGRAM.value:
+                        atoms.append(MOSESProgramAtom.from_dict(data))
+                    elif atom_type == AtomType.MOSES_POPULATION.value:
+                        atoms.append(MOSESPopulationAtom.from_dict(data))
+                    elif atom_type == AtomType.MOSES_FITNESS.value:
+                        atoms.append(MOSESFitnessAtom.from_dict(data))
                     else:
                         node = Node.from_dict(data)
                         node.concept_type = data.get('concept_type', 'concept')
@@ -352,6 +541,82 @@ class AtomSpace:
     async def get_memory_tensor(self, snapshot_id: Optional[str] = None) -> np.ndarray:
         """Get tensor representation of memory state"""
         return await self.storage.get_tensor_state(snapshot_id)
+    
+    async def add_moses_program(self, name: str, program_type: str = "inference_rule",
+                               complexity: int = 0, generation: int = 0,
+                               parent_ids: List[str] = None, fitness_score: float = 0.0,
+                               program_atoms: List[str] = None,
+                               truth_value: float = 1.0, confidence: float = 1.0,
+                               metadata: Optional[Dict[str, Any]] = None) -> MOSESProgramAtom:
+        """Add a MOSES program atom to the hypergraph"""
+        program = MOSESProgramAtom(
+            id=str(uuid.uuid4()),
+            name=name,
+            program_type=program_type,
+            complexity=complexity,
+            generation=generation,
+            parent_ids=parent_ids or [],
+            fitness_score=fitness_score,
+            program_atoms=program_atoms or [],
+            truth_value=truth_value,
+            confidence=confidence,
+            metadata=metadata or {},
+            atom_type=AtomType.MOSES_PROGRAM
+        )
+        
+        self.local_atoms[program.id] = program
+        await self.storage.store_atom(program)
+        return program
+    
+    async def add_moses_population(self, name: str, population_size: int = 0,
+                                  generation_count: int = 0, best_fitness: float = 0.0,
+                                  average_fitness: float = 0.0, program_ids: List[str] = None,
+                                  truth_value: float = 1.0, confidence: float = 1.0,
+                                  metadata: Optional[Dict[str, Any]] = None) -> MOSESPopulationAtom:
+        """Add a MOSES population atom to the hypergraph"""
+        population = MOSESPopulationAtom(
+            id=str(uuid.uuid4()),
+            name=name,
+            population_size=population_size,
+            generation_count=generation_count,
+            best_fitness=best_fitness,
+            average_fitness=average_fitness,
+            program_ids=program_ids or [],
+            truth_value=truth_value,
+            confidence=confidence,
+            metadata=metadata or {},
+            atom_type=AtomType.MOSES_POPULATION
+        )
+        
+        self.local_atoms[population.id] = population
+        await self.storage.store_atom(population)
+        return population
+    
+    async def add_moses_fitness(self, name: str, fitness_type: str = "semantic_coherence",
+                               fitness_value: float = 0.0, 
+                               confidence_interval: Tuple[float, float] = (0.0, 0.0),
+                               evaluation_context: Dict[str, Any] = None,
+                               program_id: str = "",
+                               truth_value: float = 1.0, confidence: float = 1.0,
+                               metadata: Optional[Dict[str, Any]] = None) -> MOSESFitnessAtom:
+        """Add a MOSES fitness atom to the hypergraph"""
+        fitness = MOSESFitnessAtom(
+            id=str(uuid.uuid4()),
+            name=name,
+            fitness_type=fitness_type,
+            fitness_value=fitness_value,
+            confidence_interval=confidence_interval,
+            evaluation_context=evaluation_context or {},
+            program_id=program_id,
+            truth_value=truth_value,
+            confidence=confidence,
+            metadata=metadata or {},
+            atom_type=AtomType.MOSES_FITNESS
+        )
+        
+        self.local_atoms[fitness.id] = fitness
+        await self.storage.store_atom(fitness)
+        return fitness
 
 
 class DistributedAtomSpaceAPI:

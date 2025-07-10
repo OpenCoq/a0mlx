@@ -331,3 +331,92 @@ class PLNInferenceEngine:
             "inference_sessions": len(self.inference_history),
             "total_inferences": sum(len(session["derived_facts"]) for session in self.inference_history)
         }
+    
+    async def check_consistency(self, atom_id1: str, atom_id2: str) -> Dict[str, float]:
+        """
+        Check logical consistency between two atoms using PLN
+        
+        Args:
+            atom_id1: First atom ID
+            atom_id2: Second atom ID
+            
+        Returns:
+            Dictionary with consistency score and confidence
+        """
+        try:
+            # Get truth values for both atoms
+            tv1 = await self.infer_truth_value(atom_id1)
+            tv2 = await self.infer_truth_value(atom_id2)
+            
+            # Get the actual atoms to check their types and relationships
+            atom1 = await self.atomspace.get_atom(atom_id1)
+            atom2 = await self.atomspace.get_atom(atom_id2)
+            
+            if not atom1 or not atom2:
+                return {"consistency": 0.3, "confidence": 0.1}
+            
+            # Calculate consistency based on truth value compatibility
+            strength_diff = abs(tv1.strength - tv2.strength)
+            confidence_product = tv1.confidence * tv2.confidence
+            
+            # Higher consistency if truth values are similar and both are confident
+            consistency_score = (1.0 - strength_diff) * confidence_product
+            
+            # Check for logical relationships
+            relationship_bonus = await self._check_logical_relationships(atom1, atom2)
+            consistency_score = min(1.0, consistency_score + relationship_bonus)
+            
+            # Confidence is based on the minimum confidence of the two atoms
+            consistency_confidence = min(tv1.confidence, tv2.confidence)
+            
+            return {
+                "consistency": consistency_score,
+                "confidence": consistency_confidence,
+                "atom1_truth": tv1.to_dict(),
+                "atom2_truth": tv2.to_dict()
+            }
+            
+        except Exception as e:
+            print(f"Error checking consistency between {atom_id1} and {atom_id2}: {e}")
+            return {"consistency": 0.2, "confidence": 0.1}
+    
+    async def _check_logical_relationships(self, atom1: Atom, atom2: Atom) -> float:
+        """Check for logical relationships between atoms"""
+        try:
+            relationship_bonus = 0.0
+            
+            # Check if atoms are of compatible types
+            if atom1.atom_type == atom2.atom_type:
+                relationship_bonus += 0.1
+            
+            # Check for semantic similarity in names
+            if hasattr(atom1, 'name') and hasattr(atom2, 'name'):
+                name_similarity = self._calculate_name_similarity(atom1.name, atom2.name)
+                relationship_bonus += name_similarity * 0.2
+            
+            # Check for shared metadata concepts
+            if atom1.metadata and atom2.metadata:
+                shared_concepts = set(atom1.metadata.keys()) & set(atom2.metadata.keys())
+                relationship_bonus += min(0.3, len(shared_concepts) * 0.1)
+            
+            return min(0.5, relationship_bonus)  # Cap the bonus
+            
+        except Exception:
+            return 0.0
+    
+    def _calculate_name_similarity(self, name1: str, name2: str) -> float:
+        """Calculate simple name similarity"""
+        if name1 == name2:
+            return 1.0
+        
+        # Simple word overlap similarity
+        words1 = set(name1.lower().split())
+        words2 = set(name2.lower().split())
+        
+        if not words1 or not words2:
+            return 0.0
+        
+        overlap = len(words1 & words2)
+        total = len(words1 | words2)
+        
+        return overlap / total if total > 0 else 0.0
