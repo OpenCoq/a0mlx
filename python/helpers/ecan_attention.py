@@ -28,6 +28,10 @@ class AttentionType(Enum):
     EXECUTIVE = "executive"
     SOCIAL = "social"
     SELF_MONITORING = "self_monitoring"
+    # MOSES-specific attention types
+    MOSES_EVOLUTION = "moses_evolution"
+    MOSES_FITNESS = "moses_fitness"
+    MOSES_PROGRAM = "moses_program"
 
 
 class ResourceType(Enum):
@@ -75,6 +79,48 @@ class AttentionUnit:
         self.attention_value = max(0.0, self.attention_value - decay + delta)
         self.last_accessed = access_time
         self.access_count += 1
+
+
+@dataclass
+class MOSESAttentionUnit(AttentionUnit):
+    """Specialized attention unit for MOSES entities"""
+    moses_entity_type: str = "program"  # program, population, fitness
+    fitness_score: float = 0.0
+    generation: int = 0
+    complexity: int = 0
+    evolution_priority: float = 0.0
+    
+    def update_from_moses_fitness(self, fitness_score: float, complexity: int = None, generation: int = None):
+        """Update attention based on MOSES fitness metrics"""
+        # Base attention on fitness score
+        fitness_attention_delta = (fitness_score - self.fitness_score) * 2.0
+        
+        # Bonus for high-performing programs
+        if fitness_score > 0.8:
+            fitness_attention_delta *= 1.5
+        
+        # Penalty for high complexity (encourage efficiency)
+        if complexity is not None and complexity > 10:
+            complexity_penalty = (complexity - 10) * 0.1
+            fitness_attention_delta -= complexity_penalty
+        
+        # Generational recency bonus
+        if generation is not None and generation > self.generation:
+            generation_bonus = (generation - self.generation) * 0.1
+            fitness_attention_delta += generation_bonus
+        
+        # Update values
+        self.fitness_score = fitness_score
+        if complexity is not None:
+            self.complexity = complexity
+        if generation is not None:
+            self.generation = generation
+        
+        # Apply attention update
+        self.update_attention(fitness_attention_delta)
+        
+        # Update evolution priority based on fitness and recency
+        self.evolution_priority = fitness_score * (1.0 + (generation * 0.1))
 
 
 @dataclass
@@ -171,6 +217,24 @@ class ECANAttentionSystem:
         self.agent_reliability_scores: Dict[str, float] = {}
         self.agent_performance_history: Dict[str, List[float]] = defaultdict(list)
         self.max_attention_units = 1000  # Maximum number of attention units
+        
+        # MOSES-specific tracking
+        self.moses_attention_units: Dict[str, MOSESAttentionUnit] = {}
+        self.moses_fitness_history: List[Dict[str, Any]] = []
+        self.evolution_metrics: Dict[str, float] = {
+            "best_fitness_seen": 0.0,
+            "generation_count": 0,
+            "population_diversity": 0.0,
+            "attention_on_best_programs": 0.0
+        }
+        
+        # Resource allocation policies for MOSES
+        self.moses_resource_policies = {
+            "high_fitness_bonus": 0.3,  # Extra resources for high-fitness programs
+            "complexity_penalty": 0.2,  # Resource penalty for complex programs
+            "generation_decay": 0.05,   # Attention decay for old generations
+            "diversity_bonus": 0.15     # Bonus for maintaining population diversity
+        }
         
         # Statistics
         self.statistics = {
@@ -332,19 +396,6 @@ class ECANAttentionSystem:
         
         # Update statistics
         self.statistics["attention_redistributions"] += 1
-                confidence=0.5,
-                resource_cost=0.1,
-                last_accessed=datetime.now(timezone.utc)
-            )
-            self.attention_units[attention_unit.id] = attention_unit
-        
-        # Update attention
-        attention_unit.update_attention(priority)
-        
-        # Update statistics
-        self.statistics["attention_allocations"] += 1
-        
-        return True
     
     async def adaptive_attention_allocation(self, task_salience: Dict[str, float], 
                                           resource_load: Dict[str, float]) -> Dict[str, float]:
@@ -586,7 +637,9 @@ class ECANAttentionSystem:
             "modification_events": len(self.self_modification_events),
             "current_state": self.current_state.value,
             "agent_reliability_scores": dict(self.agent_reliability_scores),
-            "average_agent_reliability": sum(self.agent_reliability_scores.values()) / max(1, len(self.agent_reliability_scores))
+            "average_agent_reliability": sum(self.agent_reliability_scores.values()) / max(1, len(self.agent_reliability_scores)),
+            "moses_attention_units": len(self.moses_attention_units),
+            "moses_evolution_metrics": self.evolution_metrics,
             "resource_pools": {
                 resource_type.value: {
                     "total_capacity": pool.total_capacity,
@@ -596,3 +649,288 @@ class ECANAttentionSystem:
                 for resource_type, pool in self.resource_pools.items()
             }
         }
+    
+    async def allocate_moses_attention(self, atom_id: str, moses_entity_type: str,
+                                     fitness_score: float = 0.0, complexity: int = 0,
+                                     generation: int = 0, requester_id: str = "moses") -> bool:
+        """Allocate attention specifically for MOSES entities with fitness-based prioritization"""
+        try:
+            # Calculate attention priority based on MOSES metrics
+            attention_priority = await self._calculate_moses_attention_priority(
+                fitness_score, complexity, generation, moses_entity_type
+            )
+            
+            # Check resource allocation based on MOSES policies
+            resource_cost = self._calculate_moses_resource_cost(
+                fitness_score, complexity, moses_entity_type
+            )
+            
+            if not self.resource_pools[ResourceType.ATTENTION].allocate(requester_id, resource_cost):
+                return False
+            
+            # Create or update MOSES attention unit
+            moses_unit_id = f"moses_{moses_entity_type}_{atom_id}"
+            
+            if moses_unit_id in self.moses_attention_units:
+                # Update existing MOSES attention unit
+                moses_unit = self.moses_attention_units[moses_unit_id]
+                moses_unit.update_from_moses_fitness(fitness_score, complexity, generation)
+            else:
+                # Create new MOSES attention unit
+                moses_unit = MOSESAttentionUnit(
+                    id=moses_unit_id,
+                    atom_id=atom_id,
+                    attention_value=attention_priority,
+                    importance=fitness_score,
+                    confidence=min(1.0, fitness_score + 0.2),
+                    resource_cost=resource_cost,
+                    last_accessed=datetime.now(timezone.utc),
+                    moses_entity_type=moses_entity_type,
+                    fitness_score=fitness_score,
+                    generation=generation,
+                    complexity=complexity,
+                    evolution_priority=attention_priority
+                )
+                self.moses_attention_units[moses_unit_id] = moses_unit
+                
+                # Also add to general attention units for compatibility
+                self.attention_units[moses_unit_id] = moses_unit
+            
+            # Update evolution metrics
+            await self._update_evolution_metrics(fitness_score, generation)
+            
+            # Apply resource allocation policies
+            await self._apply_moses_resource_policies()
+            
+            # Update statistics
+            self.statistics["attention_allocations"] += 1
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error allocating MOSES attention: {e}")
+            return False
+    
+    async def _calculate_moses_attention_priority(self, fitness_score: float, complexity: int,
+                                                generation: int, entity_type: str) -> float:
+        """Calculate attention priority for MOSES entities"""
+        base_priority = fitness_score
+        
+        # Entity type modifiers
+        if entity_type == "program":
+            base_priority *= 1.0  # Programs get full attention
+        elif entity_type == "fitness":
+            base_priority *= 0.8  # Fitness records get slightly less
+        elif entity_type == "population":
+            base_priority *= 1.2  # Populations get bonus attention
+        
+        # Fitness-based modifiers
+        if fitness_score > 0.9:
+            base_priority *= 1.5  # Exceptional programs get more attention
+        elif fitness_score > 0.7:
+            base_priority *= 1.2  # Good programs get bonus attention
+        elif fitness_score < 0.3:
+            base_priority *= 0.5  # Poor programs get less attention
+        
+        # Complexity modifier (simpler is better)
+        if complexity > 15:
+            base_priority *= 0.8  # Penalize overly complex programs
+        elif complexity < 5:
+            base_priority *= 1.1  # Bonus for simple, effective programs
+        
+        # Generation recency (newer generations get more attention)
+        generation_bonus = min(0.3, generation * 0.02)
+        base_priority += generation_bonus
+        
+        # Apply resource policy modifiers
+        policy_modifier = 1.0
+        if fitness_score > 0.8:
+            policy_modifier += self.moses_resource_policies["high_fitness_bonus"]
+        
+        if complexity > 10:
+            policy_modifier -= self.moses_resource_policies["complexity_penalty"]
+        
+        return min(1.0, max(0.0, base_priority * policy_modifier))
+    
+    def _calculate_moses_resource_cost(self, fitness_score: float, complexity: int, entity_type: str) -> float:
+        """Calculate resource cost for MOSES attention allocation"""
+        base_cost = 1.0
+        
+        # Higher fitness programs deserve more resources
+        if fitness_score > 0.8:
+            base_cost *= 1.5
+        elif fitness_score < 0.3:
+            base_cost *= 0.5
+        
+        # Complex programs cost more resources
+        complexity_multiplier = 1.0 + (complexity * 0.05)
+        base_cost *= complexity_multiplier
+        
+        # Entity type cost modifiers
+        if entity_type == "population":
+            base_cost *= 2.0  # Populations are more expensive
+        elif entity_type == "fitness":
+            base_cost *= 0.5  # Fitness records are cheaper
+        
+        return max(0.1, min(5.0, base_cost))  # Clamp between 0.1 and 5.0
+    
+    async def _update_evolution_metrics(self, fitness_score: float, generation: int):
+        """Update MOSES evolution metrics"""
+        if fitness_score > self.evolution_metrics["best_fitness_seen"]:
+            self.evolution_metrics["best_fitness_seen"] = fitness_score
+        
+        if generation > self.evolution_metrics["generation_count"]:
+            self.evolution_metrics["generation_count"] = generation
+        
+        # Calculate attention on best programs
+        best_program_attention = sum(
+            unit.attention_value for unit in self.moses_attention_units.values()
+            if unit.fitness_score > 0.8
+        )
+        total_moses_attention = sum(
+            unit.attention_value for unit in self.moses_attention_units.values()
+        )
+        
+        if total_moses_attention > 0:
+            self.evolution_metrics["attention_on_best_programs"] = (
+                best_program_attention / total_moses_attention
+            )
+    
+    async def _apply_moses_resource_policies(self):
+        """Apply resource allocation policies for MOSES evolution"""
+        try:
+            # Policy 1: Boost high-fitness programs
+            high_fitness_units = [
+                unit for unit in self.moses_attention_units.values()
+                if unit.fitness_score > 0.8
+            ]
+            for unit in high_fitness_units:
+                unit.resource_cost *= (1.0 + self.moses_resource_policies["high_fitness_bonus"])
+            
+            # Policy 2: Apply generation decay
+            current_generation = self.evolution_metrics["generation_count"]
+            for unit in self.moses_attention_units.values():
+                generation_age = current_generation - unit.generation
+                if generation_age > 0:
+                    decay_factor = 1.0 - (generation_age * self.moses_resource_policies["generation_decay"])
+                    unit.attention_value *= max(0.1, decay_factor)
+            
+            # Policy 3: Maintain diversity by preventing attention monopoly
+            attention_values = [unit.attention_value for unit in self.moses_attention_units.values()]
+            if attention_values:
+                max_attention = max(attention_values)
+                avg_attention = sum(attention_values) / len(attention_values)
+                
+                # If there's too much concentration, redistribute
+                if max_attention > avg_attention * 3:
+                    diversity_penalty = self.moses_resource_policies["diversity_bonus"]
+                    for unit in self.moses_attention_units.values():
+                        if unit.attention_value > avg_attention * 2:
+                            unit.attention_value *= (1.0 - diversity_penalty)
+                        else:
+                            unit.attention_value *= (1.0 + diversity_penalty * 0.5)
+            
+        except Exception as e:
+            print(f"Error applying MOSES resource policies: {e}")
+    
+    async def get_moses_attention_visualization(self) -> Dict[str, Any]:
+        """Get visualization data for MOSES attention allocation"""
+        try:
+            visualization_data = {
+                "attention_distribution": {},
+                "fitness_vs_attention": [],
+                "generation_attention": {},
+                "entity_type_breakdown": {},
+                "resource_allocation": {},
+                "evolution_timeline": []
+            }
+            
+            # Attention distribution by entity type
+            for entity_type in ["program", "population", "fitness"]:
+                units = [u for u in self.moses_attention_units.values() 
+                        if u.moses_entity_type == entity_type]
+                total_attention = sum(u.attention_value for u in units)
+                visualization_data["entity_type_breakdown"][entity_type] = {
+                    "count": len(units),
+                    "total_attention": total_attention,
+                    "average_attention": total_attention / len(units) if units else 0
+                }
+            
+            # Fitness vs attention correlation
+            for unit in self.moses_attention_units.values():
+                visualization_data["fitness_vs_attention"].append({
+                    "fitness": unit.fitness_score,
+                    "attention": unit.attention_value,
+                    "complexity": unit.complexity,
+                    "generation": unit.generation,
+                    "entity_type": unit.moses_entity_type
+                })
+            
+            # Generation-based attention
+            generation_attention = defaultdict(float)
+            for unit in self.moses_attention_units.values():
+                generation_attention[unit.generation] += unit.attention_value
+            visualization_data["generation_attention"] = dict(generation_attention)
+            
+            # Resource allocation by type
+            for resource_type, pool in self.resource_pools.items():
+                visualization_data["resource_allocation"][resource_type.value] = {
+                    "total": pool.total_capacity,
+                    "available": pool.available_capacity,
+                    "utilization": 1.0 - (pool.available_capacity / pool.total_capacity)
+                }
+            
+            # Evolution metrics timeline
+            visualization_data["evolution_timeline"] = self.moses_fitness_history[-20:]  # Last 20 entries
+            
+            return visualization_data
+            
+        except Exception as e:
+            print(f"Error generating MOSES attention visualization: {e}")
+            return {}
+    
+    async def update_from_moses_generation(self, generation_stats: Dict[str, Any], 
+                                         programs: List[Any] = None):
+        """Update ECAN attention based on MOSES generation results"""
+        try:
+            # Record fitness history for visualization
+            fitness_record = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "generation": generation_stats.get("generation", 0),
+                "best_fitness": generation_stats.get("best_fitness", 0.0),
+                "average_fitness": generation_stats.get("average_fitness", 0.0),
+                "population_size": generation_stats.get("population_size", 0)
+            }
+            self.moses_fitness_history.append(fitness_record)
+            
+            # Keep only recent history
+            if len(self.moses_fitness_history) > 100:
+                self.moses_fitness_history = self.moses_fitness_history[-100:]
+            
+            # Update attention for programs if provided
+            if programs:
+                for program in programs:
+                    await self.allocate_moses_attention(
+                        atom_id=program.id,
+                        moses_entity_type="program",
+                        fitness_score=program.fitness,
+                        complexity=program.complexity,
+                        generation=program.generation,
+                        requester_id="moses_evolution"
+                    )
+            
+            # Update global evolution metrics
+            await self._update_evolution_metrics(
+                generation_stats.get("best_fitness", 0.0),
+                generation_stats.get("generation", 0)
+            )
+            
+            # Trigger adaptive modifications if needed
+            if generation_stats.get("best_fitness", 0.0) > 0.9:
+                await self.self_modify("moses_high_performance", {
+                    "fitness_threshold": generation_stats.get("best_fitness", 0.0),
+                    "generation": generation_stats.get("generation", 0)
+                })
+            
+        except Exception as e:
+            print(f"Error updating from MOSES generation: {e}")
